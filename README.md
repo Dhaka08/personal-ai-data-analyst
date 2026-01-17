@@ -1,3 +1,7 @@
+## 📸 Screenshots
+![App Preview](assets/screenshots/preview1.png)
+![Output Example](assets/screenshots/preview2.png)
+
 # 📊 Personal AI Data Analyst (Chat with CSV)
 
 A Streamlit-based AI Data Analyst tool that allows users to upload a CSV file and ask questions in natural language.
