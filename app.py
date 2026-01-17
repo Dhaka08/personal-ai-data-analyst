@@ -16,7 +16,6 @@ st.title("📊 Personal AI Data Analyst (Chat with CSV)")
 load_dotenv()
 API_KEY = os.getenv("OPENAI_API_KEY")
 
-# ✅ Also allow user to enter key from sidebar (optional)
 st.sidebar.header("🔑 API Key")
 user_key = st.sidebar.text_input("Enter OpenAI API Key (optional)", type="password")
 
@@ -27,6 +26,10 @@ if not final_key:
     st.stop()
 
 client = OpenAI(api_key=final_key)
+
+# -------------------- SESSION STATE --------------------
+if "chat" not in st.session_state:
+    st.session_state.chat = []  # list of dicts: {question, code, output_text, table, has_plot}
 
 # -------------------- PROMPT --------------------
 system_prompt = """
@@ -45,7 +48,6 @@ Rules:
 """
 
 def clean_code(code: str) -> str:
-    """Remove markdown code fences if any."""
     return code.replace("```python", "").replace("```", "").strip()
 
 # -------------------- UPLOAD CSV --------------------
@@ -102,12 +104,7 @@ Remember: store the final output in a variable named result when possible.
     return clean_code(response.choices[0].message.content)
 
 def execute_code(code: str):
-    """
-    Executes AI-generated code safely in a limited global scope.
-    Captures printed output and returns: (printed_text, result_obj, fig_if_any)
-    """
     plt.close("all")
-
     exec_globals = {"df": df, "pd": pd, "plt": plt}
 
     buffer = io.StringIO()
@@ -118,86 +115,107 @@ def execute_code(code: str):
     result_obj = exec_globals.get("result", None)
 
     fig = plt.gcf()
-    has_plot = bool(fig.axes)  # ✅ plot exists only if axes present
+    has_plot = bool(fig.axes)
     return printed_output, result_obj, fig if has_plot else None
 
-# -------------------- AUTO REPORT (Optional Button) --------------------
+# -------------------- AUTO REPORT --------------------
 st.subheader("📌 Auto Insights Report")
 
-if st.button("Generate Report"):
-    st.write("✅ Dataset Overview")
-    st.write(f"Rows: {df.shape[0]} | Columns: {df.shape[1]}")
-    st.write("Columns:", list(df.columns))
+col1, col2 = st.columns([1, 1])
 
-    st.write("✅ Missing Values (Top)")
-    missing = df.isnull().sum().sort_values(ascending=False)
-    missing = missing[missing > 0]
-    if len(missing) == 0:
-        st.success("No missing values ✅")
-    else:
-        st.dataframe(missing.head(10), use_container_width=True)
+with col1:
+    if st.button("Generate Report"):
+        st.write("✅ Dataset Overview")
+        st.write(f"Rows: {df.shape[0]} | Columns: {df.shape[1]}")
+        st.write("Columns:", list(df.columns))
 
-    numeric_cols = df.select_dtypes(include="number").columns.tolist()
-    if numeric_cols:
-        st.write("✅ Numeric Summary")
-        st.dataframe(df[numeric_cols].describe(), use_container_width=True)
+        st.write("✅ Missing Values (Top)")
+        missing = df.isnull().sum().sort_values(ascending=False)
+        missing = missing[missing > 0]
+        if len(missing) == 0:
+            st.success("No missing values ✅")
+        else:
+            st.dataframe(missing.head(10), use_container_width=True)
 
-# -------------------- ASK QUESTIONS --------------------
+        numeric_cols = df.select_dtypes(include="number").columns.tolist()
+        if numeric_cols:
+            st.write("✅ Numeric Summary")
+            st.dataframe(df[numeric_cols].describe(), use_container_width=True)
+
+with col2:
+    if st.button("Clear Chat"):
+        st.session_state.chat = []
+        st.success("✅ Chat cleared!")
+
+# -------------------- CHAT UI --------------------
 st.subheader("💬 Ask Questions About Your Data")
-question = st.text_input("Ask a question about your dataset:")
+question = st.text_input("Ask a question (chat history will be saved):")
 
-# ✅ IMPORTANT: only run when question is not empty
 if question and question.strip():
+    q = question.strip()
+
     with st.spinner("🤖 Generating code..."):
-        code = generate_code(question.strip())
+        code = generate_code(q)
 
-    st.subheader("🧠 AI Generated Code")
-    st.code(code, language="python")
-
-    st.subheader("✅ Output")
+    output_text = ""
+    table_obj = None
+    plot_fig = None
 
     # Attempt 1
     try:
         printed_output, result_obj, fig = execute_code(code)
-
-        # Show printed output (if any)
-        if printed_output:
-            st.text(printed_output)
-
-        # Show result variable (if any)
-        if result_obj is not None:
-            if isinstance(result_obj, (pd.DataFrame, pd.Series)):
-                st.dataframe(result_obj, use_container_width=True)
-            else:
-                st.write(result_obj)
-
-        # Show plot only if exists
-        if fig is not None:
-            st.pyplot(fig)
+        output_text = printed_output
+        table_obj = result_obj
+        plot_fig = fig
 
     except Exception as e:
-        st.error(f"❌ Error while running code: {e}")
-        st.info("🔁 Trying to auto-fix...")
-
-        # Attempt 2 (auto-fix)
+        # Attempt 2 auto-fix
         try:
-            fixed_code = fix_code(question.strip(), code, str(e))
-            st.subheader("🛠️ Fixed Code (Auto)")
-            st.code(fixed_code, language="python")
+            fixed_code = fix_code(q, code, str(e))
+            code = fixed_code
 
-            printed_output, result_obj, fig = execute_code(fixed_code)
-
-            if printed_output:
-                st.text(printed_output)
-
-            if result_obj is not None:
-                if isinstance(result_obj, (pd.DataFrame, pd.Series)):
-                    st.dataframe(result_obj, use_container_width=True)
-                else:
-                    st.write(result_obj)
-
-            if fig is not None:
-                st.pyplot(fig)
+            printed_output, result_obj, fig = execute_code(code)
+            output_text = printed_output
+            table_obj = result_obj
+            plot_fig = fig
 
         except Exception as e2:
-            st.error(f"❌ Still failing after auto-fix: {e2}")
+            output_text = f"❌ Still failing after auto-fix: {e2}"
+
+    # ✅ Save in chat history
+    st.session_state.chat.append(
+        {
+            "question": q,
+            "code": code,
+            "output_text": output_text,
+            "table_obj": table_obj,
+            "has_plot": plot_fig is not None,
+        }
+    )
+
+# -------------------- DISPLAY CHAT HISTORY --------------------
+st.markdown("## 🧾 Chat History")
+
+if len(st.session_state.chat) == 0:
+    st.info("No questions asked yet. Start by typing a question above.")
+else:
+    for i, item in enumerate(reversed(st.session_state.chat), start=1):
+        st.markdown(f"### 🧑 Question {len(st.session_state.chat)-i+1}: {item['question']}")
+        st.markdown("**🤖 Generated Code:**")
+        st.code(item["code"], language="python")
+
+        st.markdown("**✅ Output:**")
+        if item["output_text"]:
+            st.text(item["output_text"])
+
+        if item["table_obj"] is not None:
+            if isinstance(item["table_obj"], (pd.DataFrame, pd.Series)):
+                st.dataframe(item["table_obj"], use_container_width=True)
+            else:
+                st.write(item["table_obj"])
+
+        # Note: plot is not stored to avoid memory heavy behavior
+        if item["has_plot"]:
+            st.info("📌 Plot generated (not stored in history to save memory). Ask again to view plot.")
+        
+        st.markdown("---")
