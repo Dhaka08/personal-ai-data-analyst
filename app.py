@@ -40,7 +40,7 @@ client = OpenAI(api_key=final_key)
 
 # -------------------- SESSION STATE --------------------
 if "chat" not in st.session_state:
-    st.session_state.chat = []  # list of dicts: {question, code, output_text, table, has_plot}
+    st.session_state.chat = []  # list of dicts: {question, code, output_text, table_obj, has_plot}
 
 # -------------------- PROMPT --------------------
 system_prompt = """
@@ -61,7 +61,7 @@ Rules:
 def clean_code(code: str) -> str:
     return code.replace("```python", "").replace("```", "").strip()
 
-# -------------------- UPLOAD CSV --------------------
+# -------------------- UPLOAD FILE --------------------
 uploaded_file = st.file_uploader(
     "📂 Upload your dataset",
     type=["csv", "xlsx", "xls", "json", "tsv", "txt"]
@@ -84,7 +84,7 @@ try:
         # Try comma first, fallback to tab
         try:
             df = pd.read_csv(uploaded_file)
-        except:
+        except Exception:
             uploaded_file.seek(0)
             df = pd.read_csv(uploaded_file, sep="\t")
 
@@ -102,8 +102,48 @@ except Exception as e:
     st.error(f"❌ Failed to read file: {e}")
     st.stop()
 
+# -------------------- DATA PREVIEW --------------------
 st.subheader("🔍 Dataset Preview")
 st.dataframe(df.head(10), use_container_width=True)
+
+# -------------------- DYNAMIC QUESTIONS (OPTION 2) --------------------
+def get_dynamic_questions(df: pd.DataFrame):
+    numeric_cols = df.select_dtypes(include="number").columns.tolist()
+    cat_cols = df.select_dtypes(exclude="number").columns.tolist()
+
+    questions = [
+        "What are the names of all columns?",
+        "Show the first 5 rows of the dataset",
+        "How many rows and columns are there?",
+        "Which columns have missing values? (store in result)",
+    ]
+
+    # Numeric-based questions
+    if numeric_cols:
+        questions += [
+            "Show summary statistics for numeric columns (store in result)",
+            f"Plot histogram of {numeric_cols[0]}",
+        ]
+
+        if len(numeric_cols) >= 2:
+            questions += [
+                "Plot correlation heatmap for numeric columns"
+            ]
+
+    # Categorical-based questions
+    if cat_cols:
+        questions += [
+            f"Show top 10 most frequent values in {cat_cols[0]} (store in result)",
+            f"Plot bar chart of top 10 values in {cat_cols[0]}",
+        ]
+
+    # Mixed analysis if both available
+    if numeric_cols and cat_cols:
+        questions += [
+            f"Show average of {numeric_cols[0]} grouped by {cat_cols[0]} (store in result)"
+        ]
+
+    return questions
 
 # -------------------- FUNCTIONS --------------------
 def generate_code(question: str) -> str:
@@ -192,27 +232,13 @@ with col2:
 
 # -------------------- CHAT UI --------------------
 st.subheader("💬 Ask Questions About Your Data")
-with st.expander("✅ Example Questions (Click to Expand)"):
-    st.markdown("""
-Try these questions to test the app:
 
-**Basic**
-- What are the names of all columns?
-- Show top 5 rows of the dataset
-- How many unique states are there?
+with st.expander("✅ Example Questions (Auto-generated for your dataset)"):
+    qs = get_dynamic_questions(df)
+    for q in qs:
+        st.markdown(f"- {q}")
 
-**Analysis**
-- Top 10 states by number of stations (store in result)
-- Average currentlevel by basin (store in result)
-- Which stations have the highest level_diff? (store in result)
-
-**Visualization**
-- Plot histogram of currentlevel
-- Plot bar chart of top 10 basins by average currentlevel
-- Show distribution of level_diff
-""")
-
-st.caption("💡 Tip: For best table output, ask AI to **store final answer in `result`**.")
+st.caption("💡 Tip: Ask AI to store final table output in `result` for best display.")
 
 question = st.text_input("Ask a question (chat history will be saved):")
 
@@ -282,5 +308,5 @@ else:
         # Note: plot is not stored to avoid memory heavy behavior
         if item["has_plot"]:
             st.info("📌 Plot generated (not stored in history to save memory). Ask again to view plot.")
-        
+
         st.markdown("---")
