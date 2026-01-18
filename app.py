@@ -51,13 +51,38 @@ def clean_code(code: str) -> str:
     return code.replace("```python", "").replace("```", "").strip()
 
 # -------------------- UPLOAD CSV --------------------
-uploaded_file = st.file_uploader("📂 Upload CSV File", type=["csv"])
+uploaded_file = st.file_uploader("📂 Upload CSV File", type=["csv","xlsx","xls","json","tsv","txt"])
 
-if uploaded_file is None:
-    st.info("Upload a CSV file to start.")
+file_name = uploaded_file.name.lower()
+
+try:
+    if file_name.endswith(".csv"):
+        df = pd.read_csv(uploaded_file)
+
+    elif file_name.endswith(".tsv"):
+        df = pd.read_csv(uploaded_file, sep="\t")
+
+    elif file_name.endswith(".txt"):
+        # Try comma first, fallback to tab
+        try:
+            df = pd.read_csv(uploaded_file)
+        except:
+            uploaded_file.seek(0)
+            df = pd.read_csv(uploaded_file, sep="\t")
+
+    elif file_name.endswith(".xlsx") or file_name.endswith(".xls"):
+        df = pd.read_excel(uploaded_file)
+
+    elif file_name.endswith(".json"):
+        df = pd.read_json(uploaded_file)
+
+    else:
+        st.error("❌ Unsupported file format.")
+        st.stop()
+
+except Exception as e:
+    st.error(f"❌ Failed to read file: {e}")
     st.stop()
-
-df = pd.read_csv(uploaded_file)
 
 st.subheader("🔍 Dataset Preview")
 st.dataframe(df.head(10), use_container_width=True)
