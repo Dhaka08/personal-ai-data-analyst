@@ -149,6 +149,28 @@ with col2:
 
 # -------------------- CHAT UI --------------------
 st.subheader("💬 Ask Questions About Your Data")
+with st.expander("✅ Example Questions (Click to Expand)"):
+    st.markdown("""
+Try these questions to test the app:
+
+**Basic**
+- What are the names of all columns?
+- Show top 5 rows of the dataset
+- How many unique states are there?
+
+**Analysis**
+- Top 10 states by number of stations (store in result)
+- Average currentlevel by basin (store in result)
+- Which stations have the highest level_diff? (store in result)
+
+**Visualization**
+- Plot histogram of currentlevel
+- Plot bar chart of top 10 basins by average currentlevel
+- Show distribution of level_diff
+""")
+
+st.caption("💡 Tip: For best table output, ask AI to **store final answer in `result`**.")
+
 question = st.text_input("Ask a question (chat history will be saved):")
 
 if question and question.strip():
