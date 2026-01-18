@@ -17,13 +17,24 @@ load_dotenv()
 API_KEY = os.getenv("OPENAI_API_KEY")
 
 st.sidebar.header("🔑 API Key")
-user_key = st.sidebar.text_input("Enter OpenAI API Key (optional)", type="password")
 
-final_key = user_key.strip() if user_key else API_KEY
+# ✅ If .env key exists, do NOT force user to enter anything
+if API_KEY:
+    st.sidebar.success("✅ API Key loaded from .env")
+    final_key = API_KEY
+else:
+    user_key = st.sidebar.text_input("Enter OpenAI API Key", type="password").strip()
 
-if not final_key:
-    st.warning("⚠️ Please set OPENAI_API_KEY in .env OR enter API key in sidebar.")
-    st.stop()
+    if not user_key:
+        st.warning("⚠️ Please enter your OpenAI API key to continue.")
+        st.stop()
+
+    # ✅ simple validation
+    if not user_key.startswith("sk-"):
+        st.error("❌ Invalid API key format. Key usually starts with 'sk-'.")
+        st.stop()
+
+    final_key = user_key
 
 client = OpenAI(api_key=final_key)
 
@@ -51,7 +62,14 @@ def clean_code(code: str) -> str:
     return code.replace("```python", "").replace("```", "").strip()
 
 # -------------------- UPLOAD CSV --------------------
-uploaded_file = st.file_uploader("📂 Upload CSV File", type=["csv","xlsx","xls","json","tsv","txt"])
+uploaded_file = st.file_uploader(
+    "📂 Upload your dataset",
+    type=["csv", "xlsx", "xls", "json", "tsv", "txt"]
+)
+
+if uploaded_file is None:
+    st.info("👆 Please upload a file to continue.")
+    st.stop()
 
 file_name = uploaded_file.name.lower()
 
