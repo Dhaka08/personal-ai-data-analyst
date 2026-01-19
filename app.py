@@ -229,7 +229,14 @@ with col2:
     if st.button("Clear Chat"):
         st.session_state.chat = []
         st.success("✅ Chat cleared!")
+        
+def fig_to_png_bytes(fig):
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight")
+    buf.seek(0)
+    return buf.getvalue()
 
+        
 # -------------------- CHAT UI --------------------
 st.subheader("💬 Ask Questions About Your Data")
 
@@ -237,8 +244,6 @@ with st.expander("✅ Example Questions (Auto-generated for your dataset)"):
     qs = get_dynamic_questions(df)
     for q in qs:
         st.markdown(f"- {q}")
-
-st.caption("💡 Tip: Ask AI to store final table output in `result` for best display.")
 
 question = st.text_input("Ask a question (chat history will be saved):")
 
@@ -251,6 +256,7 @@ if question and question.strip():
     output_text = ""
     table_obj = None
     plot_fig = None
+    plot_bytes = None
 
     # Attempt 1
     try:
@@ -273,14 +279,19 @@ if question and question.strip():
         except Exception as e2:
             output_text = f"❌ Still failing after auto-fix: {e2}"
 
-    # ✅ Save in chat history
+    # ✅ Show plot immediately (main fix)
+    if plot_fig is not None:
+        st.pyplot(plot_fig)
+        plot_bytes = fig_to_png_bytes(plot_fig)
+
+    # ✅ Save in chat history (store plot bytes)
     st.session_state.chat.append(
         {
             "question": q,
             "code": code,
             "output_text": output_text,
             "table_obj": table_obj,
-            "has_plot": plot_fig is not None,
+            "plot_bytes": plot_bytes,
         }
     )
 
@@ -306,7 +317,7 @@ else:
                 st.write(item["table_obj"])
 
         # Note: plot is not stored to avoid memory heavy behavior
-        if item["has_plot"]:
-            st.info("📌 Plot generated (not stored in history to save memory). Ask again to view plot.")
+        if item.get("plot_bytes"):
+            st.image(item["plot_bytes"], caption="📊 Generated Plot", use_container_width=True)
 
         st.markdown("---")
