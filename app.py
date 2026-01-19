@@ -236,6 +236,14 @@ def fig_to_png_bytes(fig):
     buf.seek(0)
     return buf.getvalue()
 
+def to_csv_bytes(df_or_series):
+    if isinstance(df_or_series, pd.Series):
+        df_or_series = df_or_series.to_frame()
+
+    return df_or_series.to_csv(index=False).encode("utf-8")
+
+
+
         
 # -------------------- CHAT UI --------------------
 st.subheader("💬 Ask Questions About Your Data")
@@ -313,8 +321,22 @@ else:
         if item["table_obj"] is not None:
             if isinstance(item["table_obj"], (pd.DataFrame, pd.Series)):
                 st.dataframe(item["table_obj"], use_container_width=True)
-            else:
-                st.write(item["table_obj"])
+
+        # ✅ Download as CSV button
+        csv_bytes = to_csv_bytes(item["table_obj"])
+        st.download_button(
+    label="⬇️ Download Result as CSV",
+    data=csv_bytes,
+    file_name=f"analysis_result_{i}.csv",
+    mime="text/csv",
+    key=f"download_csv_{i}"
+)
+
+    else:
+        st.write(item["table_obj"])
+    
+
+        
 
         # Note: plot is not stored to avoid memory heavy behavior
         if item.get("plot_bytes"):
