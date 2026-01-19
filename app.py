@@ -9,8 +9,8 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 # -------------------- CONFIG --------------------
-st.set_page_config(page_title="Personal AI Data Analyst", layout="wide")
-st.title("📊 Personal AI Data Analyst (Chat with CSV)")
+st.set_page_config(page_title="Personal AI Data Analyst | Chat with Data", layout="wide")
+st.title("📊 Personal AI Data Analyst (Chat with Data)")
 
 # -------------------- LOAD ENV + CLIENT --------------------
 load_dotenv()
