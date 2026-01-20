@@ -204,7 +204,7 @@ def execute_code(code: str):
 # -------------------- AUTO REPORT --------------------
 st.subheader("📌 Auto Insights Report")
 
-col1, col2 = st.columns([1, 1])
+col1, col2, col3 = st.columns([1, 1, 1])
 
 with col1:
     if st.button("Generate Report"):
@@ -229,6 +229,12 @@ with col2:
     if st.button("Clear Chat"):
         st.session_state.chat = []
         st.success("✅ Chat cleared!")
+
+with col3:
+    if st.button("Clear Dataset"):
+        st.session_state.chat = []
+        st.experimental_rerun()
+
         
 def fig_to_png_bytes(fig):
     buf = io.BytesIO()
