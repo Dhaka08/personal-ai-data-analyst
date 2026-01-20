@@ -151,9 +151,12 @@ def get_dynamic_questions(df: pd.DataFrame):
     return questions
 
 # -------------------- FUNCTIONS --------------------
+sample_rows = df.head(5).to_dict(orient="records")
 def generate_code(question: str) -> str:
     user_prompt = f"""
 Dataframe columns: {list(df.columns)}
+Data types: {df.dtypes.astype(str).to_dict()}
+Sample rows (first 5): {sample_rows}
 User question: {question}
 """
     response = client.chat.completions.create(
