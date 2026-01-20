@@ -106,6 +106,11 @@ except Exception as e:
 st.subheader("🔍 Dataset Preview")
 st.dataframe(df.head(10), use_container_width=True)
 
+with st.expander("📌 Dataset Info"):
+    st.write(f"✅ Rows: {df.shape[0]}  |  Columns: {df.shape[1]}")
+    st.dataframe(df.dtypes.astype(str), use_container_width=True)
+
+
 # -------------------- DYNAMIC QUESTIONS (OPTION 2) --------------------
 def get_dynamic_questions(df: pd.DataFrame):
     numeric_cols = df.select_dtypes(include="number").columns.tolist()
