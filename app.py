@@ -237,10 +237,16 @@ def fig_to_png_bytes(fig):
     return buf.getvalue()
 
 def to_csv_bytes(df_or_series):
+    if df_or_series is None:
+        return None
+
     if isinstance(df_or_series, pd.Series):
         df_or_series = df_or_series.to_frame()
 
-    return df_or_series.to_csv(index=False).encode("utf-8")
+    if isinstance(df_or_series, pd.DataFrame):
+        return df_or_series.to_csv(index=False).encode("utf-8")
+
+    return None
 
 
 
@@ -287,12 +293,46 @@ if question and question.strip():
         except Exception as e2:
             output_text = f"❌ Still failing after auto-fix: {e2}"
 
-    # ✅ Show plot immediately (main fix)
+    # ✅ Show output text (if any)
+    if output_text:
+        st.text(output_text)
+
+    # ✅ Show table output (if any)
+    if table_obj is not None:
+        if isinstance(table_obj, (pd.DataFrame, pd.Series)):
+            st.dataframe(table_obj, use_container_width=True)
+
+            # ✅ Download result as CSV (optional if you already added)
+            try:
+                csv_bytes = to_csv_bytes(table_obj)
+                if csv_bytes is not None:
+                    st.download_button(
+                    label="⬇️ Download Result as CSV",
+                    data=csv_bytes,
+                    file_name="analysis_result.csv",
+                    mime="text/csv",
+                    key=f"download_result_current_{len(st.session_state.chat)+1}"
+                )
+            except:
+                pass
+        else:
+            st.write(table_obj)
+
+    # ✅ Show plot immediately + download plot
     if plot_fig is not None:
         st.pyplot(plot_fig)
+
         plot_bytes = fig_to_png_bytes(plot_fig)
 
-    # ✅ Save in chat history (store plot bytes)
+        st.download_button(
+            label="⬇️ Download Plot as PNG",
+            data=plot_bytes,
+            file_name="analysis_plot.png",
+            mime="image/png",
+            key=f"download_plot_current_{len(st.session_state.chat)+1}"
+        )
+
+    # ✅ Save in chat history
     st.session_state.chat.append(
         {
             "question": q,
@@ -323,14 +363,17 @@ else:
                 st.dataframe(item["table_obj"], use_container_width=True)
 
         # ✅ Download as CSV button
-        csv_bytes = to_csv_bytes(item["table_obj"])
-        st.download_button(
-    label="⬇️ Download Result as CSV",
-    data=csv_bytes,
-    file_name=f"analysis_result_{i}.csv",
-    mime="text/csv",
-    key=f"download_csv_{i}"
-)
+        if item.get("table_obj") is not None and isinstance(item["table_obj"], (pd.DataFrame, pd.Series)):
+            csv_bytes = to_csv_bytes(item["table_obj"])
+            if csv_bytes is not None:
+                st.download_button(
+            label="⬇️ Download Result as CSV",
+            data=csv_bytes,
+            file_name=f"analysis_result_{i}.csv",
+            mime="text/csv",
+            key=f"download_csv_{i}"
+        )
+
 
     else:
         st.write(item["table_obj"])
