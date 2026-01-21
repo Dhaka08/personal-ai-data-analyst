@@ -54,6 +54,7 @@ Rules:
 - Do NOT write explanations.
 - Do NOT import anything.
 - Avoid print() unless necessary.
+- Never use imports, file operations, network calls, or OS/system commands.
 - Always store the final output in a variable named result when possible.
 - If a chart is needed, use matplotlib with plt.figure() and plt.show().
 """
@@ -194,7 +195,28 @@ Remember: store the final output in a variable named result when possible.
     )
     return clean_code(response.choices[0].message.content)
 
+def is_code_safe(code: str):
+    blocked_patterns = [
+        "import os", "import sys", "import subprocess", "import shutil",
+        "open(", "eval(", "exec(", "__import__", "socket", "requests",
+        "pip install", "apt-get", "rm -rf", "del ", "powershell", "cmd.exe",
+        "os.", "subprocess.", "shutil.", "sys."
+    ]
+
+    lower_code = code.lower()
+
+    for pat in blocked_patterns:
+        if pat in lower_code:
+            return False, pat
+
+    return True, None
+
+
 def execute_code(code: str):
+    safe, bad_pattern = is_code_safe(code)
+    if not safe:
+        raise ValueError(f"Blocked unsafe code pattern: {bad_pattern}")
+
     plt.close("all")
     exec_globals = {"df": df, "pd": pd, "plt": plt}
 
@@ -208,6 +230,7 @@ def execute_code(code: str):
     fig = plt.gcf()
     has_plot = bool(fig.axes)
     return printed_output, result_obj, fig if has_plot else None
+
 
 # -------------------- AUTO REPORT --------------------
 st.subheader("📌 Auto Insights Report")
