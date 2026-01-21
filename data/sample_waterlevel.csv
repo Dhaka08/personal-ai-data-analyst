@@ -1,0 +1,11 @@
+date,state_name,district_name,station_name,latitude,longitude,basin,sub_basin,source,currentlevel,level_diff
+2025-12-01,Uttar Pradesh,Lucknow,Station A,26.85,80.95,Ganga,Middle Ganga,RiverGauge,4.2,0.3
+2025-12-01,Uttar Pradesh,Varanasi,Station B,25.31,82.97,Ganga,Lower Ganga,RiverGauge,5.1,0.4
+2025-12-02,Bihar,Patna,Station C,25.60,85.10,Ganga,Lower Ganga,RiverGauge,6.4,-0.2
+2025-12-02,Maharashtra,Pune,Station D,18.52,73.85,Krishna,Upper Krishna,RiverGauge,2.8,0.1
+2025-12-03,Gujarat,Ahmedabad,Station E,23.02,72.57,Sabarmati,Sabarmati,RiverGauge,3.0,0.0
+2025-12-03,Delhi,New Delhi,Station F,28.61,77.20,Yamuna,Yamuna,RiverGauge,4.9,0.6
+2025-12-04,Rajasthan,Jaipur,Station G,26.91,75.79,Banas,Banas,RiverGauge,1.9,-0.1
+2025-12-04,Tamil Nadu,Chennai,Station H,13.08,80.27,Cauvery,Lower Cauvery,RiverGauge,3.7,0.2
+2025-12-05,Karnataka,Bangalore,Station I,12.97,77.59,Krishna,Upper Krishna,RiverGauge,2.5,0.1
+2025-12-05,West Bengal,Kolkata,Station J,22.57,88.36,Ganga,Lower Ganga,RiverGauge,5.8,-0.3

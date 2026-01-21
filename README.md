@@ -28,6 +28,13 @@ The app generates **Pandas + Matplotlib** code using an LLM and executes it to p
 
 ---
 
+## 🧪 Sample Datasets
+You can test the app using sample datasets:
+- `data/sample_sales.csv`
+- `data/sample_waterlevel.csv`
+
+---
+
 ## ⚙️ Installation & Run
 ```bash
 # create venv
