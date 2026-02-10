@@ -1,12 +1,14 @@
 import os
 import io
+import json
+import time
 import contextlib
 
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import OpenAI, RateLimitError
 
 # -------------------- CONFIG --------------------
 st.set_page_config(page_title="Personal AI Data Analyst | Chat with Data", layout="wide")
@@ -18,58 +20,46 @@ API_KEY = os.getenv("OPENAI_API_KEY")
 
 st.sidebar.header("🔑 API Key")
 
-# ✅ If .env key exists, do NOT force user to enter anything
+client = None
+
 if API_KEY:
-    st.sidebar.success("✅ API Key loaded from .env")
-    final_key = API_KEY
+    st.sidebar.success("✅ API Key loaded from secrets")
+    client = OpenAI(api_key=API_KEY)
 else:
     user_key = st.sidebar.text_input("Enter OpenAI API Key", type="password").strip()
-
-    if not user_key:
-        st.warning("⚠️ Please enter your OpenAI API key to continue.")
-        st.stop()
-
-    # ✅ simple validation
-    if not user_key.startswith("sk-"):
-        st.error("❌ Invalid API key format. Key usually starts with 'sk-'.")
-        st.stop()
-
-    final_key = user_key
-
-client = OpenAI(api_key=final_key)
+    if user_key:
+        if not user_key.startswith("sk-"):
+            st.error("❌ Invalid API key format.")
+            st.stop()
+        client = OpenAI(api_key=user_key)
+    else:
+        st.sidebar.info("ℹ️ AI features disabled (Offline Mode)")
 
 # -------------------- SESSION STATE --------------------
 if "chat" not in st.session_state:
-    st.session_state.chat = []  # list of dicts: {question, code, output_text, table_obj, has_plot}
+    st.session_state.chat = []
 
 # -------------------- PROMPT --------------------
 system_prompt = """
 You are a Data Analyst.
 You will be given a pandas dataframe named df.
 
-Write ONLY valid Python pandas/matplotlib code to answer the user question.
-Return ONLY raw Python code. Do NOT wrap the code in ``` or markdown.
-
-Rules:
-- Do NOT write explanations.
-- Do NOT import anything.
-- Avoid print() unless necessary.
-- Never use imports, file operations, network calls, or OS/system commands.
-- Always store the final output in a variable named result when possible.
-- If a chart is needed, use matplotlib with plt.figure() and plt.show().
+Write ONLY valid Python pandas/matplotlib code.
+No imports, file access, network calls, or OS commands.
+Store final table output in variable named `result` when possible.
 """
 
 def clean_code(code: str) -> str:
     return code.replace("```python", "").replace("```", "").strip()
 
-# -------------------- UPLOAD FILE --------------------
+# -------------------- FILE UPLOAD --------------------
 uploaded_file = st.file_uploader(
     "📂 Upload your dataset",
     type=["csv", "xlsx", "xls", "json", "tsv", "txt"]
 )
 
 if uploaded_file is None:
-    st.info("👆 Please upload a file to continue.")
+    st.info("👆 Upload a file to continue.")
     st.stop()
 
 file_name = uploaded_file.name.lower()
@@ -77,30 +67,19 @@ file_name = uploaded_file.name.lower()
 try:
     if file_name.endswith(".csv"):
         df = pd.read_csv(uploaded_file)
-
     elif file_name.endswith(".tsv"):
         df = pd.read_csv(uploaded_file, sep="\t")
-
     elif file_name.endswith(".txt"):
-        # Try comma first, fallback to tab
-        try:
-            df = pd.read_csv(uploaded_file)
-        except Exception:
-            uploaded_file.seek(0)
-            df = pd.read_csv(uploaded_file, sep="\t")
-
-    elif file_name.endswith(".xlsx") or file_name.endswith(".xls"):
+        df = pd.read_csv(uploaded_file)
+    elif file_name.endswith((".xlsx", ".xls")):
         df = pd.read_excel(uploaded_file)
-
     elif file_name.endswith(".json"):
         df = pd.read_json(uploaded_file)
-
     else:
-        st.error("❌ Unsupported file format.")
+        st.error("Unsupported file format.")
         st.stop()
-
 except Exception as e:
-    st.error(f"❌ Failed to read file: {e}")
+    st.error(f"Failed to read file: {e}")
     st.stop()
 
 # -------------------- DATA PREVIEW --------------------
@@ -108,114 +87,58 @@ st.subheader("🔍 Dataset Preview")
 st.dataframe(df.head(10), use_container_width=True)
 
 with st.expander("📌 Dataset Info"):
-    st.write(f"✅ Rows: {df.shape[0]}  |  Columns: {df.shape[1]}")
+    st.write(f"Rows: {df.shape[0]} | Columns: {df.shape[1]}")
     st.dataframe(df.dtypes.astype(str), use_container_width=True)
 
-
-# -------------------- DYNAMIC QUESTIONS (OPTION 2) --------------------
-def get_dynamic_questions(df: pd.DataFrame):
-    numeric_cols = df.select_dtypes(include="number").columns.tolist()
-    cat_cols = df.select_dtypes(exclude="number").columns.tolist()
-
-    questions = [
-        "What are the names of all columns?",
-        "Show the first 5 rows of the dataset",
-        "How many rows and columns are there?",
-        "Which columns have missing values? (store in result)",
-    ]
-
-    # Numeric-based questions
-    if numeric_cols:
-        questions += [
-            "Show summary statistics for numeric columns (store in result)",
-            f"Plot histogram of {numeric_cols[0]}",
-        ]
-
-        if len(numeric_cols) >= 2:
-            questions += [
-                "Plot correlation heatmap for numeric columns"
-            ]
-
-    # Categorical-based questions
-    if cat_cols:
-        questions += [
-            f"Show top 10 most frequent values in {cat_cols[0]} (store in result)",
-            f"Plot bar chart of top 10 values in {cat_cols[0]}",
-        ]
-
-    # Mixed analysis if both available
-    if numeric_cols and cat_cols:
-        questions += [
-            f"Show average of {numeric_cols[0]} grouped by {cat_cols[0]} (store in result)"
-        ]
-
-    return questions
-
-# -------------------- FUNCTIONS --------------------
-sample_rows = df.head(5).to_dict(orient="records")
-def generate_code(question: str) -> str:
-    user_prompt = f"""
-Dataframe columns: {list(df.columns)}
-Data types: {df.dtypes.astype(str).to_dict()}
-Sample rows (first 5): {sample_rows}
-User question: {question}
-"""
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        temperature=0,
-    )
-    return clean_code(response.choices[0].message.content)
-
-def fix_code(question: str, code: str, error: str) -> str:
-    fix_prompt = f"""
-The code below caused an error.
-
-Question: {question}
-
-Code:
-{code}
-
-Error:
-{error}
-
-Fix the code. Return ONLY corrected raw Python code (no markdown).
-Remember: store the final output in a variable named result when possible.
-"""
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": fix_prompt},
-        ],
-        temperature=0,
-    )
-    return clean_code(response.choices[0].message.content)
-
+# -------------------- SAFETY --------------------
 def is_code_safe(code: str):
-    blocked_patterns = [
-        "import os", "import sys", "import subprocess", "import shutil",
-        "open(", "eval(", "exec(", "__import__", "socket", "requests",
-        "pip install", "apt-get", "rm -rf", "del ", "powershell", "cmd.exe",
-        "os.", "subprocess.", "shutil.", "sys."
-    ]
-
-    lower_code = code.lower()
-
-    for pat in blocked_patterns:
-        if pat in lower_code:
-            return False, pat
-
+    blocked = ["import", "os.", "sys.", "open(", "exec(", "eval(", "subprocess"]
+    for b in blocked:
+        if b in code.lower():
+            return False, b
     return True, None
 
+# -------------------- OPENAI CALL --------------------
+def generate_code(question: str) -> str:
+    if client is None:
+        st.warning("🔒 AI mode is disabled. Please provide your own OpenAI API key.")
+        st.stop()
 
+    user_prompt = f"""
+Columns: {list(df.columns)}
+Dtypes: {df.dtypes.astype(str).to_dict()}
+Question: {question}
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0,
+        )
+        return clean_code(response.choices[0].message.content)
+
+    except RateLimitError as e:
+        # covers insufficient_quota + rate limit
+        st.error(
+            "⚠️ OpenAI quota exceeded.\n\n"
+            "➡️ This app requires an API key with available credits.\n"
+            "➡️ Please add your own key or use Offline Mode."
+        )
+        st.stop()
+
+    except Exception as e:
+        st.error(f"❌ OpenAI error: {e}")
+        st.stop()
+
+# -------------------- EXECUTION --------------------
 def execute_code(code: str):
-    safe, bad_pattern = is_code_safe(code)
+    safe, bad = is_code_safe(code)
     if not safe:
-        raise ValueError(f"Blocked unsafe code pattern: {bad_pattern}")
+        raise ValueError(f"Blocked unsafe code: {bad}")
 
     plt.close("all")
     exec_globals = {"df": df, "pd": pd, "plt": plt}
@@ -224,202 +147,118 @@ def execute_code(code: str):
     with contextlib.redirect_stdout(buffer):
         exec(code, exec_globals)
 
-    printed_output = buffer.getvalue().strip()
-    result_obj = exec_globals.get("result", None)
+    output = buffer.getvalue().strip()
+    result = exec_globals.get("result")
+    fig = plt.gcf() if plt.get_fignums() else None
+    return output, result, fig
 
-    fig = plt.gcf()
-    has_plot = bool(fig.axes)
-    return printed_output, result_obj, fig if has_plot else None
-
-
-# -------------------- AUTO REPORT --------------------
-st.subheader("📌 Auto Insights Report")
-
-col1, col2, col3 = st.columns([1, 1, 1])
-
-with col1:
-    if st.button("Generate Report"):
-        st.write("✅ Dataset Overview")
-        st.write(f"Rows: {df.shape[0]} | Columns: {df.shape[1]}")
-        st.write("Columns:", list(df.columns))
-
-        st.write("✅ Missing Values (Top)")
-        missing = df.isnull().sum().sort_values(ascending=False)
-        missing = missing[missing > 0]
-        if len(missing) == 0:
-            st.success("No missing values ✅")
-        else:
-            st.dataframe(missing.head(10), use_container_width=True)
-
-        numeric_cols = df.select_dtypes(include="number").columns.tolist()
-        if numeric_cols:
-            st.write("✅ Numeric Summary")
-            st.dataframe(df[numeric_cols].describe(), use_container_width=True)
-
-with col2:
-    if st.button("Clear Chat"):
-        st.session_state.chat = []
-        st.success("✅ Chat cleared!")
-
-with col3:
-    if st.button("Clear Dataset"):
-        st.session_state.chat = []
-        st.experimental_rerun()
-
-        
-def fig_to_png_bytes(fig):
+def fig_to_png(fig):
     buf = io.BytesIO()
     fig.savefig(buf, format="png", bbox_inches="tight")
     buf.seek(0)
     return buf.getvalue()
 
-def to_csv_bytes(df_or_series):
-    if df_or_series is None:
-        return None
-
-    if isinstance(df_or_series, pd.Series):
-        df_or_series = df_or_series.to_frame()
-
-    if isinstance(df_or_series, pd.DataFrame):
-        return df_or_series.to_csv(index=False).encode("utf-8")
-
+def to_csv_bytes(obj):
+    if isinstance(obj, pd.Series):
+        obj = obj.to_frame()
+    if isinstance(obj, pd.DataFrame):
+        return obj.to_csv(index=False).encode("utf-8")
     return None
 
-
-
-        
+# -------------------- CHAT UI --------------------
 # -------------------- CHAT UI --------------------
 st.subheader("💬 Ask Questions About Your Data")
 
-with st.expander("✅ Example Questions (Auto-generated for your dataset)"):
-    qs = get_dynamic_questions(df)
-    for q in qs:
-        st.markdown(f"- {q}")
+st.sidebar.markdown("### ⚙️ Mode")
+offline_mode = st.sidebar.toggle(
+    "Offline Mode (No API)",
+    value=(client is None),
+    help="Turn OFF to enable AI chat using your OpenAI API key"
+)
 
-question = st.text_input("Ask a question (chat history will be saved):")
+if offline_mode:
+    st.sidebar.info("✅ Offline Mode enabled. AI chat is disabled.")
 
-if question and question.strip():
-    q = question.strip()
+question = st.text_input(
+    "Ask a question:",
+    disabled=offline_mode,
+    placeholder="Enable AI Mode to ask questions" if offline_mode else ""
+)
 
-    with st.spinner("🤖 Generating code..."):
-        code = generate_code(q)
+# -------------------- AI CHAT LOGIC --------------------
+if question and not offline_mode:
+    with st.spinner("🤖 Generating answer..."):
+        code = generate_code(question)
 
-    output_text = ""
-    table_obj = None
-    plot_fig = None
-    plot_bytes = None
-
-    # Attempt 1
     try:
-        printed_output, result_obj, fig = execute_code(code)
-        output_text = printed_output
-        table_obj = result_obj
-        plot_fig = fig
-
+        out, table, fig = execute_code(code)
     except Exception as e:
-        # Attempt 2 auto-fix
-        try:
-            fixed_code = fix_code(q, code, str(e))
-            code = fixed_code
+        st.error(str(e))
+        st.stop()
 
-            printed_output, result_obj, fig = execute_code(code)
-            output_text = printed_output
-            table_obj = result_obj
-            plot_fig = fig
+    # ---------- TEXT OUTPUT ----------
+    if out:
+        st.text(out)
 
-        except Exception as e2:
-            output_text = f"❌ Still failing after auto-fix: {e2}"
+    # ---------- TABLE OUTPUT ----------
+    if isinstance(table, (pd.DataFrame, pd.Series)):
+        st.dataframe(table, use_container_width=True)
 
-    # ✅ Show output text (if any)
-    if output_text:
-        st.text(output_text)
+        csv = to_csv_bytes(table)
+        if csv:
+            st.download_button(
+                label="⬇️ Download Result as CSV",
+                data=csv,
+                file_name="result.csv",
+                mime="text/csv",
+                key=f"csv_{len(st.session_state.chat)}"
+            )
 
-    # ✅ Show table output (if any)
-    if table_obj is not None:
-        if isinstance(table_obj, (pd.DataFrame, pd.Series)):
-            st.dataframe(table_obj, use_container_width=True)
+    # ---------- PLOT OUTPUT ----------
+    plot_bytes = None
+    if fig:
+        st.pyplot(fig)
 
-            # ✅ Download result as CSV (optional if you already added)
-            try:
-                csv_bytes = to_csv_bytes(table_obj)
-                if csv_bytes is not None:
-                    st.download_button(
-                    label="⬇️ Download Result as CSV",
-                    data=csv_bytes,
-                    file_name="analysis_result.csv",
-                    mime="text/csv",
-                    key=f"download_result_current_{len(st.session_state.chat)+1}"
-                )
-            except:
-                pass
-        else:
-            st.write(table_obj)
-
-    # ✅ Show plot immediately + download plot
-    if plot_fig is not None:
-        st.pyplot(plot_fig)
-
-        plot_bytes = fig_to_png_bytes(plot_fig)
-
+        plot_bytes = fig_to_png(fig)
         st.download_button(
             label="⬇️ Download Plot as PNG",
             data=plot_bytes,
-            file_name="analysis_plot.png",
+            file_name="plot.png",
             mime="image/png",
-            key=f"download_plot_current_{len(st.session_state.chat)+1}"
+            key=f"plot_{len(st.session_state.chat)}"
         )
 
-    # ✅ Save in chat history
-    st.session_state.chat.append(
-        {
-            "question": q,
-            "code": code,
-            "output_text": output_text,
-            "table_obj": table_obj,
-            "plot_bytes": plot_bytes,
-        }
+    # ---------- SAVE CHAT ----------
+    st.session_state.chat.append({
+        "question": question,
+        "code": code,
+        "output": out,
+        "table": table,
+        "plot": plot_bytes,
+    })
+
+# -------------------- OFFLINE MODE MESSAGE --------------------
+elif offline_mode:
+    st.info(
+        "🔒 AI Chat is disabled in Offline Mode.\n\n"
+        "➡️ To use AI features, turn OFF Offline Mode and provide a valid OpenAI API key."
     )
 
-# -------------------- DISPLAY CHAT HISTORY --------------------
+
+# -------------------- CHAT HISTORY --------------------
 st.markdown("## 🧾 Chat History")
 
-if len(st.session_state.chat) == 0:
-    st.info("No questions asked yet. Start by typing a question above.")
-else:
-    for i, item in enumerate(reversed(st.session_state.chat), start=1):
-        st.markdown(f"### 🧑 Question {len(st.session_state.chat)-i+1}: {item['question']}")
-        st.markdown("**🤖 Generated Code:**")
-        st.code(item["code"], language="python")
+for i, item in enumerate(reversed(st.session_state.chat), start=1):
+    st.markdown(f"### Q{i}: {item['question']}")
+    st.code(item["code"], language="python")
 
-        st.markdown("**✅ Output:**")
-        if item["output_text"]:
-            st.text(item["output_text"])
+    if item["output"]:
+        st.text(item["output"])
 
-        if item["table_obj"] is not None:
-            if isinstance(item["table_obj"], (pd.DataFrame, pd.Series)):
-                st.dataframe(item["table_obj"], use_container_width=True)
+    if isinstance(item["table"], (pd.DataFrame, pd.Series)):
+        st.dataframe(item["table"], use_container_width=True)
 
-        # ✅ Download as CSV button
-        if item.get("table_obj") is not None and isinstance(item["table_obj"], (pd.DataFrame, pd.Series)):
-            csv_bytes = to_csv_bytes(item["table_obj"])
-            if csv_bytes is not None:
-                st.download_button(
-            label="⬇️ Download Result as CSV",
-            data=csv_bytes,
-            file_name=f"analysis_result_{i}.csv",
-            mime="text/csv",
-            key=f"download_csv_{i}"
-        )
+    if item["plot"]:
+        st.image(item["plot"], use_container_width=True)
 
-
-    else:
-        st.write(item["table_obj"])
-    
-
-        
-
-        # Note: plot is not stored to avoid memory heavy behavior
-        if item.get("plot_bytes"):
-            st.image(item["plot_bytes"], caption="📊 Generated Plot", use_container_width=True)
-
-        st.markdown("---")
+    st.markdown("---")
