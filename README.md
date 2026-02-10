@@ -13,6 +13,10 @@ The app generates **Pandas + Matplotlib** code using an LLM and executes it to p
 ✅ Auto-fix retry when generated code fails  
 ✅ Auto Insights Report (overview + missing values + numeric summary)
 
+## 🔐 AI Usage
+AI features require a user-provided OpenAI API key.
+The app works in Offline Mode without any API key.
+
 ---
 
 ## App Preview
