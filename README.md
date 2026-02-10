@@ -1,3 +1,5 @@
+[![Live Demo](https://img.shields.io/badge/Live-Demo-brightgreen)](https://personal-ai-data-analyst.streamlit.app/)
+
 # 📊 Personal AI Data Analyst (Chat with Data)
 
 A Streamlit-based AI Data Analyst tool that allows users to upload a CSV file and ask questions in natural language.
